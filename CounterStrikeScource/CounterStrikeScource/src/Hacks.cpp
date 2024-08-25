@@ -2,21 +2,31 @@
 #include "Hacks.h"
 #include "CSS.h"
 #include "Draw.h"
-extern int winWidth;
-extern int winHeight;
 extern bool menu_open;
-
-bool bShot = false;
+eList* elist = nullptr;
+ent* localEnt = nullptr;
+viewAngles* vAngles = nullptr;
 namespace Hacks
 {
 	bool bBHop = false;
-	bool bTriggerbot = false;
 	void Initilize()
 	{
 	}
 
 	void Update()
 	{
+		if (!ClientLocalEntity)
+			return;
+		if ((eList*)(ClientEntList) == nullptr)
+		{
+			return;
+		}
+		elist = CounterStrikeSourceSE::getEntityList();
+		localEnt = elist->clients[0].entPtr;
+		vAngles = CounterStrikeSourceSE::getViewAngles();
+
+		Aimbot::doAimbot();
+
 		if (bBHop)
 		{
 			if (GetAsyncKeyState(VK_SPACE))
@@ -29,44 +39,18 @@ namespace Hacks
 				}
 			}
 		}
-
-		if (bTriggerbot) // maybe dont make your triggerbot like this... its killing me facking fps
-		{
-			eList* elist = *(eList**)(ClientEntList);
-			if (CounterStrikeSourceSE::getLocalEntServer()->crosshairId == 0)
-				return;
-
-			int cId;
-			cId = elist->clients[0].entPtr->crosshairId;
-			int tId = elist->clients[0].entPtr->teamNumber;
-			if (CounterStrikeSourceSE::isEntValid(elist->clients[cId - 1].entPtr))
-			{
-				if (elist->clients[cId - 1].entPtr->teamNumber != tId)
-				{
-					if (!bShot)
-					{
-						*(int*)(ClientShoot) = 5;
-						bShot = true;
-					}
-					else
-					{
-						*(int*)(ClientShoot) = 4;
-						bShot = false;
-					}
-				}
-			}
-			else
-				return;
-		}
 	}
 
 	void Draw(IDirect3DDevice9* pDevice/* we take the D3D9 device for rendering esp.. if ever i find that stoopid entlist*/)
 	{
-
+		ESP::ESP(pDevice); // soon this will draw esp: boxes, snap lines, bones, information about the player. also this draws the crosshar.
 	}
 
 	void Shutdown()
 	{
+		CounterStrikeSourceSE::testPrint("Unloading cheat/hacks class vars & pointers!");
 		menu_open = false;
+		ESP::bCrosshair = false;
+		Sleep(900); // 
 	}
 }

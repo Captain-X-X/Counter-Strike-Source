@@ -1,8 +1,9 @@
 #pragma once
+#include "AImbot.h"
+#include "ESP.h"
 namespace Hacks
 {
 	extern bool bBHop;
-	extern bool bTriggerbot;
 	void Initilize();
 	void Update();
 	void Draw(IDirect3DDevice9* pDevice);

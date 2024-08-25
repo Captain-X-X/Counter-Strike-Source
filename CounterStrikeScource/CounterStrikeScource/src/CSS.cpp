@@ -12,17 +12,34 @@ namespace CounterStrikeSourceSE
         eList* elist = *(eList**)(ClientEntList);
         return elist->clients[0].entPtr;
     }
+    eList* getEntityList()
+    {
+        return *(eList**)(ClientEntList);
+    }
+    viewAngles* getViewAngles()
+    {
+        return *(viewAngles**)(ClientViewAngles);
+    }
+    int getNumberOfPlayersAlive()
+    {
+        return *(int*)(ServerNumberOfPlayers);
+    }
+    void testPrint(const char* text, ...)
+    {
+        char format[] = "%s:\f";
+        csPrint(format, text);
+    }
     bool isEntValid(ent* eEnt)
     {
         if (eEnt == nullptr)
         {
             return false;
         }
-        if (eEnt->health < 1)
+        if (eEnt->health < 2)
         {
             return false;
         }
-        //if (!eEnt->teamNumber)
+        //if (!eEnt->teamNumber) // this was removed but not deleted because checking the teamnumber might be a good idea?? idk yet.
         //{
         //    return false;
         //}
@@ -71,5 +88,11 @@ namespace CounterStrikeSourceSE
                 }
             }
         }
+    }
+    float get3DDistance(m_Vector3 position_self, m_Vector3 position_ent)
+    {
+        return sqrt(pow(position_ent.x - position_self.x, 2.0) + 
+                    pow(position_ent.y - position_self.y, 2.0) +    
+                    pow(position_ent.z - position_self.z, 2.0));
     }
 }

@@ -2,26 +2,138 @@
 #include "Hooks.h"
 #include "Hacks.h"
 #include "Menu.h"
+#include "CSS.h"
+
 
 bool menu_open = false;
 bool setup = false;
 int winWidth = 0;
 int winHeight = 0;
+#ifdef _WIN32
+//#define _DDEBUG 1
+bool SEDetour::detour32(BYTE* src, BYTE* dst, const uintptr_t len)
+{
+	if (len < 5)
+	{
+#ifdef _DDEBUG
+		printf("cant place detour32. Hook length is too short! (just like you)");
+#endif // DEBUG
+		return false;
+	}
+
+	DWORD curProtection;
+	VirtualProtect(src, len, PAGE_EXECUTE_READWRITE, &curProtection);
+	uintptr_t relativeAddress = dst - src - 5;
+	*src = 0xE9;
+	*(uintptr_t*)(src + 1) = relativeAddress;
+	VirtualProtect(src, len, curProtection, &curProtection);
+	return true;
+}
+
+BYTE* SEDetour::trampHook32(BYTE* src, BYTE* dst, const uintptr_t len)
+{
+	if (len < 5)
+	{
+#ifdef _DDEBUG
+		printf("cant place trampHook32. Hook length is too short! (just like you)");
+#endif // DEBUG
+		return nullptr;
+	}
+
+	BYTE* gateway = (BYTE*)VirtualAlloc(0, len, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+	memcpy_s(gateway, len, src, len);
+
+	uintptr_t gatewayRelativeAddr = src - gateway - 5;
+	*(gateway + len) = 0xE9;
+	*(uintptr_t*)((uintptr_t)gateway + len + 1) = gatewayRelativeAddr;
+	detour32(src, dst, len);
+	return gateway;
+}
+
+SEDetour::SEDetour() 
+{
+};
+SEDetour::SEDetour(BYTE* src, BYTE* dst, BYTE* PtrToGatewayFnPtr, uintptr_t len)
+{
+	this->src = src;
+	this->dst = dst;
+	this->len = len;
+	this->PtrToGatewayFnPtr = PtrToGatewayFnPtr;
+}
+SEDetour::SEDetour(const char* exportName, const char* modName, BYTE* dst, BYTE* PtrToGatewayFnPtr, uintptr_t len)
+{
+	HMODULE hMod = GetModuleHandleA(modName);
+	if (hMod)
+	{
+		this->src = (BYTE*)GetProcAddress(hMod, exportName);
+		this->dst = dst;
+		this->len = len;
+		this->PtrToGatewayFnPtr = PtrToGatewayFnPtr;
+	}
+}
+
+bool SEDetour::SetHook(BYTE* src, BYTE* dst, BYTE* PtrToGatewayFnPtr, uintptr_t len)
+{
+	this->src = src;
+	this->dst = dst;
+	this->len = len;
+	this->PtrToGatewayFnPtr = PtrToGatewayFnPtr;
+	return true;
+}
+void SEDetour::Enable()
+{
+	try
+	{
+		memcpy(originalBytes, src, len);
+		*(uintptr_t*)PtrToGatewayFnPtr = (uintptr_t)trampHook32(src, dst, len);
+		bStatus = true;
+#if _DDEBUG
+	printf("Detour in place. [0x%p]\n", dst);
+#endif // DEBUG
+	}
+	catch (const std::exception&)
+	{
+		throw std::runtime_error("Failed to enable detour");
+	}
+}
+void SEDetour::Disable()
+{
+	if (bStatus)
+	{
+		DWORD oldportect;
+		VirtualProtect(src, len, PAGE_EXECUTE_READWRITE, &oldportect);
+		memcpy(src, originalBytes, len);
+		VirtualProtect(src, len, oldportect, &oldportect);
+		bStatus = false;
+#if _DDEBUG
+	printf("Detour removed. [0x%p]\n", dst);
+#endif // DEBUG
+		return;
+	}
+#if _DDEBUG
+	printf("Detour was not enabled. No detour to remove!\n");
+#endif // DEBUG
+}
+constexpr void* DXVTableFunction(void* thisptr, size_t index)
+{
+	return (*static_cast<void***>(thisptr))[index];
+}
+std::vector<SEDetour> seDetour;
+#endif // _WIN32
 
 HWND window = nullptr;
 WNDCLASSEX windowClass = {};
 WNDPROC originalWindowProcess = nullptr;
 LPDIRECT3DDEVICE9 device = nullptr;
 LPDIRECT3D9 d3d9 = nullptr;
+
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 LRESULT CALLBACK WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
 	if (GetAsyncKeyState(VK_INSERT) & 1)
 	{
 		menu_open = !menu_open;
-		Hacks::Initilize(); // i do tis so we dont have to initilize every frame, only when the menu reopens. because the values I use for ammo and stuff are invalid when a new part of thr map loads. 
 	}
-
 	if (menu_open && ImGui_ImplWin32_WndProcHandler(window, msg, wParam, lParam))
 	{
 		return 1L;
@@ -42,6 +154,7 @@ void DestroyDirectX()
 		d3d9 = NULL;
 	}
 }
+
 void Setup()
 {
 	windowClass.cbSize = sizeof(WNDCLASSEX);
@@ -71,8 +184,9 @@ void Setup()
 	// get window size
 	RECT winRect;
 	GetWindowRect(window, &winRect);
-	winWidth = winRect.right - winRect.left;
-	winHeight = winRect.bottom - winRect.top;
+	// this will be changed when i learn how to get a windows width & height!
+	winWidth = 1920;
+	winHeight = 1080;
 
 	// get handle to d3d9.dll in hl2
 	const auto handle = GetModuleHandle("d3d9.dll");
@@ -87,6 +201,7 @@ void Setup()
 	d3d9 = create(D3D_SDK_VERSION);
 	if (!d3d9)
 		throw std::runtime_error("Failed to setup D3D9.");
+
 	// setting up D3D9
 	D3DPRESENT_PARAMETERS d3dparams = { };
 	d3dparams.BackBufferWidth = 0;
@@ -107,13 +222,14 @@ void Setup()
 	{
 		throw std::runtime_error("Failed to setup dx9.");
 	}
+
 	// cleanup then D3D9 can be hooked!
 	if (window)
 	{
 		DestroyWindow(window);
 		UnregisterClass(windowClass.lpszClassName, windowClass.hInstance);
 	}
-	printf("Window, WindowClass & DirectX9 Setup and ready for hook!\n");
+	/*printf("Window, WindowClass & DirectX9 Setup and ready for hook!\n");*/
 }
 
 void Destroy()
@@ -121,15 +237,15 @@ void Destroy()
 	ImGui_ImplDX9_Shutdown();
 	ImGui_ImplWin32_Shutdown();
 	ImGui::DestroyContext();
-
 	SetWindowLongPtr(window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(originalWindowProcess));
 	DestroyDirectX();
 }
 
-constexpr void* VirtualFunction(void* thisptr, size_t index)
-{
-	return (*static_cast<void***>(thisptr))[index];
-}
+//constexpr void* VirtualFunction(void* thisptr, size_t index)
+//{
+//	return (*static_cast<void***>(thisptr))[index];
+//}
+
 using EndSceneFn = long(__thiscall*)(void*, IDirect3DDevice9*);
 EndSceneFn EndSceneOriginal = nullptr;
 long __stdcall callback_EndScene(IDirect3DDevice9* pDevice)
@@ -148,86 +264,66 @@ long __stdcall callback_EndScene(IDirect3DDevice9* pDevice)
 		window = params.hFocusWindow;
 		originalWindowProcess = reinterpret_cast<WNDPROC>(SetWindowLongPtr(window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(WndProc)));
 		ImGui::CreateContext();
+		ImGui::GetIO().IniFilename = "";
+		ImGui::GetIO().LogFilename = "";
 		// set style
 		ImGuiStyle* style = &ImGui::GetStyle();
 		style->WindowTitleAlign = ImVec2(0.5, 0.5);
 		style->WindowMinSize = ImVec2(200, 260);
-		style->WindowBorderSize = 0;
-		style->WindowPadding = ImVec2(15, 15);
+		style->WindowBorderSize = 1;
+		style->WindowPadding = ImVec2(8, 8);
 		style->WindowRounding = 0.0f;
-		style->FramePadding = ImVec2(5, 5);
-		style->FrameRounding = 4.0f;
-		style->ItemSpacing = ImVec2(12, 8);
-		style->ItemInnerSpacing = ImVec2(8, 6);
+		style->FramePadding = ImVec2(4, 4);
+		//style->ItemSpacing = ImVec2(12, 8);
+		//style->ItemInnerSpacing = ImVec2(8, 6);
 		style->IndentSpacing = 25.0f;
 		style->ScrollbarSize = 15.0f;
-		style->ScrollbarRounding = 9.0f;
-		style->GrabMinSize = 5.0f;	style->GrabRounding = 3.0f;
-		style->FrameBorderSize = 0.50f;
-		style->FramePadding = ImVec2(4, 4);
-		style->WindowPadding = ImVec2(4, 4);
+		style->GrabMinSize = 5.0f;	
+		//style->FramePadding = ImVec2(4, 4);
+		//style->WindowPadding = ImVec2(4, 4);
 		style->ItemSpacing = ImVec2(4, 4);
-		style->ItemInnerSpacing = ImVec2(4, 4);
-		style->WindowBorderSize = 0;
+		style->ItemInnerSpacing = ImVec2(2, 2);
 		style->ChildBorderSize = 1;
 		style->PopupBorderSize = 1;
 		style->FrameBorderSize = 1;
 		style->TabBorderSize = 0;
-		style->WindowRounding = 0;
 		style->ChildRounding = 0;
 		style->FrameRounding = 0;
 		style->PopupRounding = 0;
+		style->TabRounding = 0;
 		style->ScrollbarRounding = 0;
 		style->GrabRounding = 0;
 		ImVec4* colors = ImGui::GetStyle().Colors;
-		colors[ImGuiCol_Text] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
-		colors[ImGuiCol_TextDisabled] = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
-		colors[ImGuiCol_WindowBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.90f);
-		colors[ImGuiCol_ChildBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-		colors[ImGuiCol_PopupBg] = ImVec4(0.08f, 0.08f, 0.08f, 0.94f);
-		colors[ImGuiCol_Border] = ImVec4(0.41f, 0.00f, 0.80f, 1.00f);
-		colors[ImGuiCol_BorderShadow] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
-		colors[ImGuiCol_FrameBg] = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
-		colors[ImGuiCol_FrameBgHovered] = ImVec4(0.26f, 0.59f, 0.98f, 0.40f);
-		colors[ImGuiCol_FrameBgActive] = ImVec4(0.26f, 0.59f, 0.98f, 0.67f);
-		colors[ImGuiCol_TitleBg] = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
-		colors[ImGuiCol_TitleBgActive] = ImVec4(0.41f, 0.00f, 0.80f, 1.00f);
-		colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.41f, 0.00f, 0.80f, 0.20f);
-		colors[ImGuiCol_MenuBarBg] = ImVec4(0.14f, 0.14f, 0.14f, 1.00f);
+		colors[ImGuiCol_TextDisabled] = ImVec4(1.00f, 0.12f, 0.12f, 0.39f);
+		colors[ImGuiCol_WindowBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.78f);
+		colors[ImGuiCol_ChildBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.39f);
+		colors[ImGuiCol_PopupBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.39f);
+		colors[ImGuiCol_Border] = ImVec4(1.00f, 0.12f, 0.12f, 1.00f);
+		colors[ImGuiCol_FrameBg] = ImVec4(0.00f, 0.00f, 0.00f, 0.78f);
+		colors[ImGuiCol_FrameBgHovered] = ImVec4(1.00f, 0.12f, 0.12f, 0.39f);
+		colors[ImGuiCol_FrameBgActive] = ImVec4(1.00f, 0.12f, 0.12f, 1.00f);
+		colors[ImGuiCol_TitleBg] = ImVec4(1.00f, 0.12f, 0.12f, 1.00f);
+		colors[ImGuiCol_TitleBgActive] = ImVec4(1.00f, 0.12f, 0.12f, 1.00f);
+		colors[ImGuiCol_TitleBgCollapsed] = ImVec4(1.00f, 0.12f, 0.12f, 1.00f);
 		colors[ImGuiCol_ScrollbarBg] = ImVec4(0.00f, 0.00f, 0.00f, 1.00f);
-		colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.41f, 0.00f, 0.80f, 1.00f);
-		colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.41f, 0.00f, 0.80f, 0.39f);
-		colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.41f, 0.00f, 0.80f, 1.00f);
-		colors[ImGuiCol_CheckMark] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
-		colors[ImGuiCol_SliderGrab] = ImVec4(0.41f, 0.00f, 0.80f, 1.00f);
-		colors[ImGuiCol_SliderGrabActive] = ImVec4(0.41f, 0.00f, 0.80f, 0.39f);
-		colors[ImGuiCol_Button] = ImVec4(0.00f, 0.00f, 0.00f, 0.40f);
-		colors[ImGuiCol_ButtonHovered] = ImVec4(0.41f, 0.00f, 0.80f, 1.00f);
-		colors[ImGuiCol_ButtonActive] = ImVec4(0.41f, 0.00f, 0.80f, 0.39f);
-		colors[ImGuiCol_Header] = ImVec4(0.41f, 0.00f, 0.80f, 1.00f);
-		colors[ImGuiCol_HeaderHovered] = ImVec4(0.41f, 0.00f, 0.80f, 0.50f);
-		colors[ImGuiCol_HeaderActive] = ImVec4(0.41f, 0.00f, 0.80f, 1.00f);
-		colors[ImGuiCol_Separator] = ImVec4(0.41f, 0.00f, 0.80f, 1.00f);
-		colors[ImGuiCol_SeparatorHovered] = ImVec4(0.41f, 0.00f, 0.80f, 0.39f);
-		colors[ImGuiCol_SeparatorActive] = ImVec4(0.41f, 0.00f, 0.80f, 1.00f);
-		colors[ImGuiCol_ResizeGrip] = ImVec4(1.00f, 1.00f, 1.00f, 0.20f);
-		colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.76f, 0.76f, 0.76f, 1.00f);
-		colors[ImGuiCol_ResizeGripActive] = ImVec4(0.41f, 0.00f, 0.80f, 1.00f);
-		colors[ImGuiCol_Tab] = ImVec4(0.41f, 0.00f, 0.80f, 0.39f);
-		colors[ImGuiCol_TabHovered] = ImVec4(0.41f, 0.00f, 0.80f, 1.00f);
-		colors[ImGuiCol_TabActive] = ImVec4(0.41f, 0.00f, 0.80f, 1.00f);
-		colors[ImGuiCol_TabUnfocused] = ImVec4(0.34f, 0.34f, 0.34f, 0.97f);
-		colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.16f, 0.16f, 0.16f, 1.00f);
-		colors[ImGuiCol_PlotLines] = ImVec4(0.61f, 0.61f, 0.61f, 1.00f);
-		colors[ImGuiCol_PlotLinesHovered] = ImVec4(1.00f, 0.43f, 0.35f, 1.00f);
-		colors[ImGuiCol_PlotHistogram] = ImVec4(0.90f, 0.70f, 0.00f, 1.00f);
-		colors[ImGuiCol_PlotHistogramHovered] = ImVec4(1.00f, 0.60f, 0.00f, 1.00f);
-		colors[ImGuiCol_TextSelectedBg] = ImVec4(0.26f, 0.59f, 0.98f, 0.35f);
-		colors[ImGuiCol_DragDropTarget] = ImVec4(1.00f, 1.00f, 0.00f, 0.90f);
-		colors[ImGuiCol_NavHighlight] = ImVec4(0.26f, 0.59f, 0.98f, 1.00f);
-		colors[ImGuiCol_NavWindowingHighlight] = ImVec4(1.00f, 1.00f, 1.00f, 0.70f);
-		colors[ImGuiCol_NavWindowingDimBg] = ImVec4(0.80f, 0.80f, 0.80f, 0.20f);
-		colors[ImGuiCol_ModalWindowDimBg] = ImVec4(0.80f, 0.80f, 0.80f, 0.35f);
+		colors[ImGuiCol_ScrollbarGrab] = ImVec4(1.00f, 0.12f, 0.12f, 1.00f);
+		colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(1.00f, 0.12f, 0.12f, 0.39f);
+		colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(1.00f, 0.12f, 0.12f, 1.00f);
+		colors[ImGuiCol_CheckMark] = ImVec4(1.00f, 0.12f, 0.12f, 1.00f);
+		colors[ImGuiCol_SliderGrab] = ImVec4(1.00f, 0.12f, 0.12f, 0.39f);
+		colors[ImGuiCol_SliderGrabActive] = ImVec4(1.00f, 0.12f, 0.12f, 1.00f);
+		colors[ImGuiCol_Button] = ImVec4(1.00f, 0.12f, 0.12f, 1.00f);
+		colors[ImGuiCol_ButtonHovered] = ImVec4(1.00f, 0.12f, 0.12f, 0.39f);
+		colors[ImGuiCol_ButtonActive] = ImVec4(1.00f, 0.12f, 0.12f, 1.00f);
+		colors[ImGuiCol_Header] = ImVec4(1.00f, 0.12f, 0.12f, 1.00f);
+		colors[ImGuiCol_SeparatorHovered] = ImVec4(1.00f, 0.12f, 0.12f, 1.00f);
+		colors[ImGuiCol_SeparatorActive] = ImVec4(1.00f, 0.12f, 0.12f, 1.00f);
+		colors[ImGuiCol_ResizeGrip] = ImVec4(1.00f, 0.12f, 0.12f, 1.00f);
+		colors[ImGuiCol_ResizeGripHovered] = ImVec4(1.00f, 0.12f, 0.12f, 1.00f);
+		colors[ImGuiCol_ResizeGripActive] = ImVec4(1.00f, 0.12f, 0.12f, 1.00f);
+		colors[ImGuiCol_TabHovered] = ImVec4(1.00f, 0.12f, 0.12f, 0.78f);
+		colors[ImGuiCol_Tab] = ImVec4(1.00f, 0.12f, 0.12f, 0.39f);
+		colors[ImGuiCol_TabSelected] = ImVec4(1.00f, 0.12f, 0.12f, 1.00f);
 		ImGui_ImplWin32_Init(window);
 		ImGui_ImplDX9_Init(pDevice);
 		setup = true;
@@ -262,58 +358,43 @@ namespace SEHooks
 {
     void InitilizeHooks()
     {
+#ifdef _DDEBUG
         AllocConsole();
         AttachConsole(GetProcessId(GetCurrentProcess()));
         freopen_s(&console, "CONOUT$", "w", stdout);
         SetConsoleTitleA("Simple HL2: Console");
+#endif // _DDEBUG
 		// hook D3DX9
 		try
 		{
 			Setup();
-			if (MH_Initialize())
-			{
-				throw std::runtime_error("Unable to initilize minhook!");
-			}
-			if (MH_CreateHook(VirtualFunction(device, 42), &callback_EndScene, reinterpret_cast<void**>(&EndSceneOriginal)))
-			{
-				throw std::runtime_error("Unable to hook EndScene()!");
-			}
-			if (MH_CreateHook(VirtualFunction(device, 16), &Reset, reinterpret_cast<void**>(&ResetOriginal)))
-			{
-				throw std::runtime_error("Unable to hook Reset()!");
-			}
-			if (MH_EnableHook(MH_ALL_HOOKS))
-			{
-				throw std::runtime_error("Unable to enable hooks!");
-			}
+			seDetour.push_back(SEDetour((BYTE*)DXVTableFunction(device, DX9ES_HOOK_VTI), (BYTE*)&callback_EndScene, (BYTE*)&EndSceneOriginal, DX9ES_HOOK_LENGTH));
+			seDetour[0].Enable();
+			seDetour.push_back(SEDetour((BYTE*)DXVTableFunction(device, DX9RS_HOOK_VTI), (BYTE*)&Reset, (BYTE*)&ResetOriginal, DX9RS_HOOK_LENGTH));
+			seDetour[1].Enable();
 			DestroyDirectX();
 		}
 		catch (const std::exception& error)
 		{
 			MessageBeep(MB_ICONERROR);
 			MessageBox(0, error.what(), "Error!", MB_OK | MB_ICONEXCLAMATION);
-			//goto UNLOAD;
 		}
-
-		printf("MinHook Initilized!\n");
+		CounterStrikeSourceSE::testPrint("Simple Counter-Strike:Source Cheat Loaded!");
 		return;
     }
 
     void DisableHooks()
     {
-        printf("Unhooking & exiting thread!\n");
-        std::fclose(console);
-
-		menu_open = false; // for some reason, if you eject when the menu is open it will crash the game. i hate this.
+		for (int i = 0; i < seDetour.size(); i++)
+		{
+			seDetour[i].Disable();
+		}
 		Destroy();
 		Hacks::Shutdown();
-
-		// unhook D3Dx9
-		MH_DisableHook(MH_ALL_HOOKS);
-		MH_RemoveHook(MH_ALL_HOOKS);
-		MH_Uninitialize();
-
+#ifdef _DDEBUG
 		// close console
         FreeConsole(); // This way you can close the console without closing hl2
+        std::fclose(console);
+#endif // _DDEBUG
     }
 }

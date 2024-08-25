@@ -63,3 +63,27 @@ m_Vector3 m_Vector3::m_Vector3Divide(m_Vector3 src, m_Vector3 dst)
 	divide.z = src.z / dst.z;
 	return divide;
 }
+
+float Maths::DistanceVec3(m_Vector3 dst, m_Vector3 src)
+{
+	float distance;
+	distance = sqrtf(powf(dst.x - src.x, 2) + powf(dst.y - src.y, 2) + powf(dst.z - src.z, 2));
+	return distance;
+}
+
+m_Vector3 Maths::calcAngles(m_Vector3 src, m_Vector3 dst)
+{
+	float delta[3] = { static_cast<float>(src.x - dst.x), static_cast<float>(src.z - dst.z), static_cast<float>(src.y - dst.y) };
+	float hyp = sqrt((delta[0] * delta[0]) + (delta[1] * delta[1]));
+	m_Vector3 angles;
+	angles.x = (float)(asinf(delta[2] / hyp) * m_pi);
+	angles.z = (float)(atanf(delta[1] / delta[0]) * m_pi);
+	angles.y = 0.0f;
+	if (delta[0] >= 0.0f)
+	{
+		angles.z += 180.0f;
+	}
+	return angles;
+}
+
+Maths maths;

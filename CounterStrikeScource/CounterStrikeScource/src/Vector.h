@@ -1,12 +1,13 @@
 #pragma once
 /*
-	this is a simple class for assaultcube
-	  AssaultCube Version 1.2.0.2
-	created by: captain_x-X#2181
+	this was a simple class for AssaultCube Version 1.2.0.2
+		modified for Counter-Strike: Source
+	created by: captain_xx on discord
 	https://github.com/Captain-X-X
 */
 
-#define PI         3.14159265358979323846
+#define PI      3.14159265358979323846
+#define m_pi    57.295779513082f
 #include <math.h>
 #include <corecrt_math.h>
 #include <cfloat>
@@ -29,11 +30,11 @@ public:
 	float z = 0.f;
 	float y = 0.f;
 	m_Vector3() {};
-	m_Vector3(const float x, const float y, const float z) : x(x), y(y), z(z) {}
-	m_Vector3 operator + (const m_Vector3& rhs) const { return m_Vector3(x + rhs.x, y + rhs.y, z + rhs.z); }
-	m_Vector3 operator - (const m_Vector3& rhs) const { return m_Vector3(x - rhs.x, y - rhs.y, z - rhs.z); }
-	m_Vector3 operator * (const float& rhs) const { return m_Vector3(x * rhs, y * rhs, z * rhs); }
-	m_Vector3 operator / (const float& rhs) const { return m_Vector3(x / rhs, y / rhs, z / rhs); }
+	m_Vector3(const float x, const float z, const float y) : x(x), z(z), y(y) {}
+	m_Vector3 operator + (const m_Vector3& rhs) const { return m_Vector3(x + rhs.x, z + rhs.z, y + rhs.y); }
+	m_Vector3 operator - (const m_Vector3& rhs) const { return m_Vector3(x - rhs.x, z - rhs.z, y - rhs.y); }
+	m_Vector3 operator * (const float& rhs) const { return m_Vector3(x * rhs, z * rhs, y * rhs); }
+	m_Vector3 operator / (const float& rhs) const { return m_Vector3(x / rhs, z / rhs, y / rhs); }
 	m_Vector3& operator += (const m_Vector3& rhs) { return *this = *this + rhs; }
 	m_Vector3& operator -= (const m_Vector3& rhs) { return *this = *this - rhs; }
 	m_Vector3& operator *= (const float& rhs) { return *this = *this * rhs; }
@@ -62,3 +63,10 @@ struct m_Vector4
 	}
 	float x, z, y, w;
 };
+
+struct Maths
+{
+	float DistanceVec3(m_Vector3 dst, m_Vector3 src);
+	m_Vector3 calcAngles(m_Vector3 src, m_Vector3 dst);
+};
+extern Maths maths;

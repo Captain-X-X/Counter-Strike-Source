@@ -12,12 +12,7 @@ namespace Memory
 	// memory:modification  
 	void patchMem(BYTE* dst, BYTE* src, unsigned int size);
 	void nopMem(BYTE* dst, unsigned int size);
-	uintptr_t findDMAaddyMem(uintptr_t ptr, std::vector<unsigned int > offsets);
-
-	// memory:hooking
-	bool detour32(BYTE* src, BYTE* dst, const uintptr_t len);
-	BYTE* trampHook32(BYTE* src, BYTE* dst, const uintptr_t len);
-
+	uintptr_t findDMAaddyMem(uintptr_t ptr, std::vector<unsigned int> offsets);
 	// utils:helpful
-	std::string getExePath();
+	std::string getExePath(); //<-- this get the path of the current exe. works for .exe's and DLL's. fucking amazing ayy? I cant link where i got this function but it was on stackoverflow.
 }
