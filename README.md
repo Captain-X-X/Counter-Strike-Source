@@ -12,3 +12,5 @@ made by captain_xx on discord :)
 TODO:
 
   none so far... huh.
+
+![Alt text](cheatImg1.jpg)
